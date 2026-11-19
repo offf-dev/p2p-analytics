@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P Analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+  <link rel="stylesheet" href="css/styles.css?v=1">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand__logo">P2P</div>
+        <div class="brand__title">
+          <div class="brand__name">P2P Analytics</div>
+          <div class="brand__sub">UAH → USDT → THB</div>
+        </div>
+      </div>
+
+      <div class="month-picker">
+        <button class="month-nav" @click="shiftMonth(-1)" title="Previous month">‹</button>
+        <input type="month" v-model="selectedMonth" class="month-input">
+        <button class="month-nav" @click="shiftMonth(1)" title="Next month">›</button>
+      </div>
+
+      <nav class="tabs">
+        <button :class="['tab', { active: activeTab === 'deals' }]" @click="activeTab = 'deals'">
+          Сделки <span class="tab-badge">{{ monthDeals.length }}</span>
+        </button>
+        <button :class="['tab', { active: activeTab === 'analytics' }]" @click="activeTab = 'analytics'">
+          Аналитика
+        </button>
+        <button :class="['tab', { active: activeTab === 'calculator' }]" @click="activeTab = 'calculator'">
+          Калькулятор
+        </button>
+        <button v-if="authRequired" class="tab tab--logout" @click="logout" title="Выйти">↪</button>
+      </nav>
+    </header>
+
+    <main class="container">
+
+      <section v-if="activeTab === 'deals'" class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">Сделки за {{ monthLabel }}</h2>
+          <button class="btn btn-primary" @click="openCreateModal">
+            <span class="btn-icon">+</span> Добавить сделку
+          </button>
+        </div>
+
+        <div v-if="loadingDeals" class="empty">Загружаю…</div>
+
+        <div v-else-if="!monthDeals.length" class="empty">
+          <div class="empty__icon">∅</div>
+          <div class="empty__text">За этот месяц сделок пока нет.</div>
+          <button class="btn btn-primary" @click="openCreateModal">Добавить первую</button>
+        </div>
+
+        <div v-else class="deals-table">
+          <div class="deals-row deals-row--head">
+            <div>Дата</div>
+            <div>Направление</div>
+            <div>Биржа</div>
+            <div class="num">Отдал</div>
+            <div class="num">Получил</div>
+            <div class="num">Курс</div>
+            <div class="num">НБУ</div>
+            <div></div>
+          </div>
+          <div v-for="d in monthDeals" :key="d.id" class="deals-row">
+            <div class="cell-date">
+              <div>{{ formatDate(d.deal_date) }}</div>
+              <div class="muted" v-if="d.deal_time">{{ d.deal_time.slice(0,5) }}</div>
+            </div>
+            <div>
+              <span :class="['chip', 'chip--' + d.direction.toLowerCase()]">
+                {{ directionLabel(d.direction) }}
+              </span>
+            </div>
+            <div>
+              <span class="exchange">{{ d.exchange }}</span>
+            </div>
+            <div class="num">
+              {{ formatAmount(d.amount_from) }}
+              <span class="muted">{{ fromCurrency(d.direction) }}</span>
+            </div>
+            <div class="num">
+              {{ formatAmount(d.amount_to) }}
+              <span class="muted">{{ toCurrency(d.direction) }}</span>
+            </div>
+            <div class="num mono" :title="rateTooltip(d)">
+              {{ formatRate(d.declared_rate || d.rate) }}
+            </div>
+            <div class="num mono muted" :title="nbuTooltip(d)">
+              {{ nbuForDeal(d) }}
+            </div>
+            <div class="actions">
+              <button class="icon-btn" @click="openEditModal(d)" title="Редактировать">✎</button>
+              <button class="icon-btn icon-btn--danger" @click="deleteDeal(d)" title="Удалить">×</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="activeTab === 'analytics'" class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">Аналитика за {{ monthLabel }}</h2>
+        </div>
+
+        <div v-if="loadingAnalytics" class="empty">Считаю…</div>
+
+        <div v-else-if="!analytics || !analytics.deals_count" class="empty">
+          <div class="empty__icon">📊</div>
+          <div class="empty__text">Сделок за этот месяц нет — считать нечего.</div>
+        </div>
+
+        <template v-else>
+          <div v-if="analytics.savings && analytics.savings.total_uah !== null"
+               :class="['hero-savings', analytics.savings.total_uah >= 0 ? 'hero-savings--good' : 'hero-savings--bad']">
+            <div class="hero-savings__label">
+              {{ analytics.savings.total_uah >= 0 ? 'Сэкономлено за месяц' : 'Переплачено за месяц' }}
+            </div>
+            <div class="hero-savings__value mono">
+              {{ analytics.savings.total_uah >= 0 ? '+' : '−' }}{{ formatAmount(Math.abs(analytics.savings.total_uah)) }}
+              <span class="hero-savings__unit">UAH</span>
+            </div>
+            <div class="hero-savings__sub" v-if="analytics.savings.percent !== null">
+              {{ analytics.savings.percent >= 0 ? '+' : '' }}{{ analytics.savings.percent.toFixed(2) }}% от стоимости по курсу НБУ
+            </div>
+            <div class="hero-savings__breakdown">
+              <div>
+                <div class="muted">Через P2P</div>
+                <div class="mono">{{ formatAmount(analytics.savings.uah_actual) }} UAH</div>
+              </div>
+              <div class="hero-savings__arrow">→</div>
+              <div>
+                <div class="muted">Получил</div>
+                <div class="mono">{{ formatAmount(analytics.savings.thb_utilized) }} THB</div>
+              </div>
+              <div class="hero-savings__arrow">←</div>
+              <div>
+                <div class="muted">Напрямую по НБУ стоило бы</div>
+                <div class="mono">{{ formatAmount(analytics.savings.uah_alternative_nbu) }} UAH</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi">
+              <div class="kpi__label">Потрачено UAH</div>
+              <div class="kpi__value">{{ formatAmount(analytics.totals.uah_spent) }}</div>
+              <div class="kpi__sub">за {{ buyCount }} покупок USDT</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi__label">Получено THB</div>
+              <div class="kpi__value">{{ formatAmount(analytics.totals.thb_received) }}</div>
+              <div class="kpi__sub">за {{ sellCount }} продаж USDT</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi__label">Остаток USDT</div>
+              <div class="kpi__value" :class="{ 'kpi__value--neg': analytics.totals.usdt_balance < 0 }">
+                {{ formatAmount(analytics.totals.usdt_balance) }}
+              </div>
+              <div class="kpi__sub">куплено {{ formatAmount(analytics.totals.usdt_bought) }} / продано {{ formatAmount(analytics.totals.usdt_sold) }}</div>
+            </div>
+            <div class="kpi kpi--accent">
+              <div class="kpi__label">Эффективный UAH → THB</div>
+              <div class="kpi__value mono">{{ formatRate(analytics.average_rates.effective_uah_per_thb) || '—' }}</div>
+              <div class="kpi__sub">что ты фактически платил за 1 бат</div>
+            </div>
+          </div>
+
+          <div class="comparison" v-if="analytics.average_rates.nbu_avg_uah_per_thb">
+            <div class="comparison__head">Сравнение с НБУ</div>
+            <div class="comparison__grid">
+              <div>
+                <div class="muted">Твой курс</div>
+                <div class="comparison__big mono">{{ formatRate(analytics.average_rates.effective_uah_per_thb) }} <span class="muted">UAH/THB</span></div>
+              </div>
+              <div class="comparison__vs">vs</div>
+              <div>
+                <div class="muted">Средний НБУ за месяц</div>
+                <div class="comparison__big mono">{{ formatRate(analytics.average_rates.nbu_avg_uah_per_thb) }} <span class="muted">UAH/THB</span></div>
+              </div>
+              <div class="comparison__savings" :class="savingsClass">
+                <div class="muted">Экономия на 1 THB</div>
+                <div class="comparison__big mono">{{ formatSignedRate(analytics.average_rates.savings_uah_per_thb) }}</div>
+                <div class="muted" v-if="analytics.average_rates.savings_total_uah !== null">
+                  Итого: <b>{{ formatSignedAmount(analytics.average_rates.savings_total_uah) }} UAH</b>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="avg-rates">
+            <div class="avg-rate">
+              <div class="avg-rate__head">
+                <div class="muted">Средний курс покупки</div>
+                <div v-if="buyRateDiffPct !== null"
+                     :class="['avg-rate__diff', buyRateDiffPct <= 0 ? 'avg-rate__diff--good' : 'avg-rate__diff--bad']">
+                  {{ buyRateDiffPct >= 0 ? '+' : '' }}{{ buyRateDiffPct.toFixed(2) }}%
+                </div>
+              </div>
+              <div class="avg-rate__values">
+                <div>
+                  <div class="mono avg-rate__mine">{{ formatRate(analytics.average_rates.buy_uah_per_usdt) || '—' }} <span class="muted">UAH/USDT</span></div>
+                  <div class="muted avg-rate__caption">мой</div>
+                </div>
+                <div>
+                  <div class="mono avg-rate__nbu">{{ formatRate(analytics.average_rates.nbu_avg_buy_usd_uah) || '—' }} <span class="muted">UAH/USD</span></div>
+                  <div class="muted avg-rate__caption">НБУ в даты покупок</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="avg-rate">
+              <div class="avg-rate__head">
+                <div class="muted">Средний курс продажи</div>
+                <div v-if="sellRateDiffPct !== null"
+                     :class="['avg-rate__diff', sellRateDiffPct >= 0 ? 'avg-rate__diff--good' : 'avg-rate__diff--bad']">
+                  {{ sellRateDiffPct >= 0 ? '+' : '' }}{{ sellRateDiffPct.toFixed(2) }}%
+                </div>
+              </div>
+              <div class="avg-rate__values">
+                <div>
+                  <div class="mono avg-rate__mine">{{ formatRate(analytics.average_rates.sell_thb_per_usdt) || '—' }} <span class="muted">THB/USDT</span></div>
+                  <div class="muted avg-rate__caption">мой</div>
+                </div>
+                <div>
+                  <div class="mono avg-rate__nbu">{{ formatRate(analytics.average_rates.nbu_avg_sell_usd_thb) || '—' }} <span class="muted">THB/USD</span></div>
+                  <div class="muted avg-rate__caption">НБУ (кросс) в даты продаж</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="by-exchange">
+            <div class="panel__title" style="margin-bottom: 12px;">По биржам</div>
+            <div class="ex-grid">
+              <div v-for="(stats, name) in analytics.by_exchange" :key="name" class="ex-card">
+                <div class="ex-card__head">
+                  <div class="ex-card__name">{{ name }}</div>
+                  <div class="muted">{{ stats.buy_count + stats.sell_count }} сделок</div>
+                </div>
+                <div class="ex-card__row">
+                  <span>Покупка USDT</span>
+                  <span class="mono">{{ formatAmount(stats.uah_spent) }} UAH → {{ formatAmount(stats.usdt_bought) }} USDT</span>
+                </div>
+                <div class="ex-card__row">
+                  <span>Продажа USDT</span>
+                  <span class="mono">{{ formatAmount(stats.usdt_sold) }} USDT → {{ formatAmount(stats.thb_received) }} THB</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+      </section>
+
+      <section v-if="activeTab === 'calculator'" class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">Калькулятор потенциальной сделки</h2>
+          <button class="btn btn-ghost" @click="refreshCalcDefaults" :disabled="calc.loading">
+            {{ calc.loading ? 'Обновляю…' : '↻ Обновить курсы' }}
+          </button>
+        </div>
+
+        <div class="calc-grid">
+          <div class="calc-inputs">
+            <div class="form__field">
+              <label>
+                <span class="label">Сумма UAH <span class="muted">(что хочу поменять)</span></span>
+                <input type="number" step="any" v-model.number="calc.uah" placeholder="например 10000">
+              </label>
+            </div>
+
+            <div class="form__field">
+              <label>
+                <span class="label">
+                  Курс покупки UAH → USDT на P2P
+                  <span class="muted">(UAH за 1 USDT)</span>
+                </span>
+                <input type="number" step="any" v-model.number="calc.buyRate" placeholder="курс мерчанта">
+                <div class="input-hint" v-if="calc.lastBuyRate">
+                  последняя моя сделка: <a href="#" @click.prevent="calc.buyRate = calc.lastBuyRate" class="mono">{{ formatRate(calc.lastBuyRate) }}</a>
+                </div>
+              </label>
+            </div>
+
+            <div class="form__field">
+              <label>
+                <span class="label">
+                  Курс продажи USDT → THB на P2P
+                  <span class="muted">(THB за 1 USDT)</span>
+                </span>
+                <input type="number" step="any" v-model.number="calc.sellRate" placeholder="курс мерчанта">
+                <div class="input-hint" v-if="calc.lastSellRate">
+                  последняя моя сделка: <a href="#" @click.prevent="calc.sellRate = calc.lastSellRate" class="mono">{{ formatRate(calc.lastSellRate) }}</a>
+                </div>
+              </label>
+            </div>
+
+            <div class="calc-nbu">
+              <div class="calc-nbu__row">
+                <span class="muted">НБУ USD/UAH сегодня:</span>
+                <span class="mono">{{ calc.nbuUsdUah ? formatRate(calc.nbuUsdUah) + ' UAH' : '—' }}</span>
+              </div>
+              <div class="calc-nbu__row">
+                <span class="muted">НБУ THB/UAH сегодня:</span>
+                <span class="mono">{{ calc.nbuThbUah ? formatRate(calc.nbuThbUah) + ' UAH' : '—' }}</span>
+              </div>
+              <div class="calc-nbu__row">
+                <span class="muted">Кросс USD/THB (НБУ):</span>
+                <span class="mono">{{ calcNbuCross ? formatRate(calcNbuCross) + ' THB' : '—' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="calc-result" v-if="calcReady">
+            <div class="calc-result__chain">
+              <div class="calc-chain-step">
+                <div class="muted">Отдаю</div>
+                <div class="calc-chain-value mono">{{ formatAmount(calc.uah) }} <span class="muted">UAH</span></div>
+              </div>
+              <div class="calc-chain-arrow">→</div>
+              <div class="calc-chain-step">
+                <div class="muted">Покупаю</div>
+                <div class="calc-chain-value mono">{{ formatAmount(calcUsdt) }} <span class="muted">USDT</span></div>
+              </div>
+              <div class="calc-chain-arrow">→</div>
+              <div class="calc-chain-step">
+                <div class="muted">Получаю</div>
+                <div class="calc-chain-value mono calc-chain-value--big">{{ formatAmount(calcThb) }} <span class="muted">THB</span></div>
+              </div>
+            </div>
+
+            <div class="calc-effective">
+              <div class="muted">Эффективный курс UAH → THB</div>
+              <div class="mono calc-effective__value">
+                {{ formatRate(calcEffectiveUahPerThb) }} <span class="muted">UAH за 1 THB</span>
+              </div>
+            </div>
+
+            <div v-if="calc.nbuThbUah" :class="['calc-verdict', calcSavings >= 0 ? 'calc-verdict--good' : 'calc-verdict--bad']">
+              <div class="calc-verdict__head">
+                <div class="muted">vs прямое снятие по курсу НБУ</div>
+                <div class="calc-verdict__amount mono">
+                  {{ calcSavings >= 0 ? '+' : '−' }}{{ formatAmount(Math.abs(calcSavings)) }} <span class="muted">UAH</span>
+                  <span v-if="calcSavingsPct !== null" class="calc-verdict__pct">
+                    ({{ calcSavings >= 0 ? '+' : '' }}{{ calcSavingsPct.toFixed(2) }}%)
+                  </span>
+                </div>
+              </div>
+              <div class="calc-verdict__detail">
+                Напрямую за {{ formatAmount(calcThb) }} THB пришлось бы отдать
+                <b class="mono">{{ formatAmount(calcAlternativeUah) }} UAH</b>
+              </div>
+            </div>
+
+            <div class="calc-breakeven" v-if="calc.buyRate && calc.nbuThbUah">
+              <div class="calc-breakeven__head">
+                <div class="muted">Порог безубыточности для курса продажи</div>
+              </div>
+              <div class="calc-breakeven__row">
+                <div class="mono calc-breakeven__value">{{ formatRate(calcBreakEvenSellRate) }} <span class="muted">THB/USDT</span></div>
+                <div class="calc-breakeven__hint">
+                  Ниже этого курса P2P-цепочка проигрывает прямому обмену по НБУ (при курсе покупки {{ formatRate(calc.buyRate) }} UAH/USDT).
+                </div>
+              </div>
+              <div v-if="calc.sellRate" class="calc-breakeven__diff mono"
+                   :class="calc.sellRate >= calcBreakEvenSellRate ? 'rate-diff--down' : 'rate-diff--up'">
+                Запас: {{ calc.sellRate >= calcBreakEvenSellRate ? '+' : '−' }}{{ formatRate(Math.abs(calc.sellRate - calcBreakEvenSellRate)) }} THB/USDT
+                ({{ ((calc.sellRate - calcBreakEvenSellRate) / calcBreakEvenSellRate * 100).toFixed(2) }}%)
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="calc-placeholder">
+            Введи сумму UAH, курс покупки и курс продажи — посчитаю.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <div v-if="modalOpen" class="modal-backdrop" @click.self="closeModal">
+      <div class="modal">
+        <div class="modal__head">
+          <h3>{{ form.id ? 'Редактировать сделку' : 'Новая сделка' }}</h3>
+          <button class="icon-btn" @click="closeModal">×</button>
+        </div>
+        <form @submit.prevent="submitForm" class="form">
+          <div class="form__row">
+            <label>
+              <span class="label">Дата</span>
+              <input type="date" v-model="form.deal_date" required>
+            </label>
+            <label>
+              <span class="label">Время <span class="muted">(опц.)</span></span>
+              <input type="time" v-model="form.deal_time">
+            </label>
+          </div>
+
+          <div class="form__field">
+            <span class="label">Направление</span>
+            <div class="radio-group">
+              <label :class="['radio-card', { active: form.direction === 'UAH_USDT' }]">
+                <input type="radio" value="UAH_USDT" v-model="form.direction">
+                <div class="radio-card__title">UAH → USDT</div>
+                <div class="radio-card__sub">Покупка крипты за гривну</div>
+              </label>
+              <label :class="['radio-card', { active: form.direction === 'USDT_THB' }]">
+                <input type="radio" value="USDT_THB" v-model="form.direction">
+                <div class="radio-card__title">USDT → THB</div>
+                <div class="radio-card__sub">Продажа крипты за бат</div>
+              </label>
+            </div>
+          </div>
+
+          <div class="form__field">
+            <span class="label">Биржа</span>
+            <div class="radio-group">
+              <label v-for="ex in exchanges" :key="ex" :class="['radio-card radio-card--compact', { active: form.exchange === ex }]">
+                <input type="radio" :value="ex" v-model="form.exchange">
+                <div class="radio-card__title">{{ ex }}</div>
+              </label>
+            </div>
+          </div>
+
+          <div class="form__field">
+            <label>
+              <span class="label">Курс сделки <span class="muted">({{ rateUnit }})</span></span>
+              <input type="number" step="any" v-model.number="form.declared_rate" placeholder="курс у мерчанта">
+            </label>
+          </div>
+
+          <div class="form__row">
+            <label>
+              <span class="label">Отдал <span class="muted">({{ fromCurrency(form.direction) }})</span></span>
+              <input type="number" step="any" v-model.number="form.amount_from" required placeholder="0">
+            </label>
+            <label>
+              <span class="label">Получил <span class="muted">({{ toCurrency(form.direction) }})</span></span>
+              <input type="number" step="any" v-model.number="form.amount_to" required placeholder="0">
+            </label>
+          </div>
+
+          <div class="computed-rate" v-if="computedRate">
+            <div class="computed-rate__row">
+              <span class="muted">Фактический курс:</span>
+              <span class="mono"><b>{{ formatRate(computedRate) }}</b> {{ rateUnit }}</span>
+            </div>
+            <div class="computed-rate__row" v-if="rateDiffPct !== null">
+              <span class="muted">Отклонение от заявленного:</span>
+              <span :class="['mono', rateDiffPct >= 0 ? 'rate-diff--up' : 'rate-diff--down']">
+                {{ rateDiffAbs >= 0 ? '+' : '−' }}{{ formatRate(Math.abs(rateDiffAbs)) }}
+                ({{ rateDiffPct >= 0 ? '+' : '' }}{{ rateDiffPct.toFixed(3) }}%)
+              </span>
+            </div>
+          </div>
+
+          <div class="form__row">
+            <label>
+              <span class="label">Мерчант <span class="muted">(опц.)</span></span>
+              <input type="text" v-model="form.counterparty" placeholder="ник / name">
+            </label>
+          </div>
+
+          <div class="form__field">
+            <label>
+              <span class="label">Заметка <span class="muted">(опц.)</span></span>
+              <textarea v-model="form.note" rows="2" placeholder="любые подробности"></textarea>
+            </label>
+          </div>
+
+          <div v-if="formError" class="form-error">{{ formError }}</div>
+
+          <div class="modal__footer">
+            <button type="button" class="btn btn-ghost" @click="closeModal">Отмена</button>
+            <button type="submit" class="btn btn-primary" :disabled="saving">
+              {{ saving ? 'Сохраняю…' : (form.id ? 'Сохранить' : 'Добавить') }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
+  <script src="js/app.js?v=1"></script>
+</body>
+</html>

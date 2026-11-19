@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P Analytics — вход</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/styles.css?v=1">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="login-card__logo">P2P</div>
+    <div class="login-card__title">P2P Analytics</div>
+    <div class="login-card__sub">Введите пароль, чтобы продолжить</div>
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <input type="password" name="password" id="password" placeholder="Пароль" autofocus required>
+      <button type="submit" class="btn btn-primary" id="submitBtn">Войти</button>
+      <div id="errorMsg" class="form-error" style="display:none"></div>
+    </form>
+  </div>
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorMsg = document.getElementById('errorMsg');
+    const submitBtn = document.getElementById('submitBtn');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorMsg.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Проверяю…';
+      try {
+        const r = await fetch('api/login.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: document.getElementById('password').value }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Ошибка');
+        location.href = 'index.html';
+      } catch (e) {
+        errorMsg.textContent = e.message;
+        errorMsg.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Войти';
+      }
+    });
+  </script>
+</body>
+</html>
