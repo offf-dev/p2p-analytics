@@ -1,20 +1,66 @@
 const { createApp, computed, ref, reactive, onMounted, watch } = Vue;
+const { createRouter, createWebHistory, useRoute } = VueRouter;
 
-const API = 'api';
+const API = '/api';
 const EXCHANGES = ['Binance', 'Bybit', 'BingX'];
 
+// Original fetch (без interceptor'а), используется из checkAuth/login/logout
 const originalFetch = window.fetch.bind(window);
+
+// Глобальное состояние авторизации — обновляется через me.php и после login/logout
+const authState = reactive({ required: false, authed: false, checked: false });
+
+async function checkAuth() {
+  try {
+    const r = await originalFetch(`${API}/me.php`);
+    const j = await r.json();
+    authState.required = !!j.auth_required;
+    authState.authed = !!j.authenticated;
+  } catch {
+    authState.required = false;
+    authState.authed = true;
+  }
+  authState.checked = true;
+}
+
+// Fetch interceptor: 401 на любом API → сбрасываем auth и перебрасываем на /login
 window.fetch = async (...args) => {
   const r = await originalFetch(...args);
   if (r.status === 401) {
     const url = typeof args[0] === 'string' ? args[0] : args[0].url;
     if (!url.endsWith('/login.php')) {
-      location.href = 'login.html';
+      authState.authed = false;
+      if (window.appRouter && window.appRouter.currentRoute.value.name !== 'login') {
+        window.appRouter.push('/login');
+      }
       throw new Error('Unauthorized');
     }
   }
   return r;
 };
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    { path: '/', redirect: '/deals' },
+    { path: '/login', name: 'login' },
+    { path: '/deals', name: 'deals' },
+    { path: '/analytics', name: 'analytics' },
+    { path: '/calculator', name: 'calculator' },
+    { path: '/:pathMatch(.*)*', redirect: '/deals' },
+  ],
+});
+window.appRouter = router;
+
+router.beforeEach(async (to) => {
+  if (!authState.checked) await checkAuth();
+  if (authState.required && !authState.authed && to.name !== 'login') {
+    return { name: 'login' };
+  }
+  if (authState.authed && to.name === 'login') {
+    return { name: 'deals' };
+  }
+});
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -37,9 +83,10 @@ function emptyForm() {
   };
 }
 
-createApp({
+const app = createApp({
   setup() {
-    const activeTab = ref('deals');
+    const route = useRoute();
+
     const selectedMonth = ref(currentMonth());
 
     const deals = ref([]);
@@ -48,19 +95,18 @@ createApp({
     const analytics = ref(null);
     const loadingAnalytics = ref(false);
 
-    const nbuRates = reactive({}); // 'YYYY-MM-DD|CUR' → rate
+    const nbuRates = reactive({});
 
     const modalOpen = ref(false);
     const form = reactive(emptyForm());
     const formError = ref('');
     const saving = ref(false);
 
-    const authRequired = ref(false);
-
-    async function logout() {
-      await fetch(`${API}/logout.php`, { method: 'POST' });
-      location.href = 'login.html';
-    }
+    // Login state
+    const loginPassword = ref('');
+    const loginPasswordVisible = ref(false);
+    const loginError = ref('');
+    const loginSubmitting = ref(false);
 
     const calc = reactive({
       uah: null,
@@ -74,6 +120,9 @@ createApp({
     });
 
     const exchanges = EXCHANGES;
+
+    const isLoginRoute = computed(() => route.name === 'login');
+    const authRequired = computed(() => authState.required);
 
     const monthLabel = computed(() => {
       const [y, m] = selectedMonth.value.split('-');
@@ -97,10 +146,10 @@ createApp({
         : form.amount_to / form.amount_from;
     });
 
-    const rateUnit = computed(() => {
-      return form.direction === 'UAH_USDT' ? 'UAH за 1 USDT' :
-             form.direction === 'USDT_THB' ? 'THB за 1 USDT' : '';
-    });
+    const rateUnit = computed(() =>
+      form.direction === 'UAH_USDT' ? 'UAH за 1 USDT' :
+      form.direction === 'USDT_THB' ? 'THB за 1 USDT' : ''
+    );
 
     const rateDiffPct = computed(() => {
       if (!form.declared_rate || !computedRate.value) return null;
@@ -110,12 +159,6 @@ createApp({
     const rateDiffAbs = computed(() => {
       if (!form.declared_rate || !computedRate.value) return null;
       return computedRate.value - form.declared_rate;
-    });
-
-    const savingsClass = computed(() => {
-      const s = analytics.value?.average_rates?.savings_uah_per_thb;
-      if (s === null || s === undefined) return '';
-      return s >= 0 ? 'comparison__savings--good' : 'comparison__savings--bad';
     });
 
     const buyRateDiffPct = computed(() => {
@@ -132,16 +175,11 @@ createApp({
       return (mine - nbu) / nbu * 100;
     });
 
-    // --- calculator ---
     const calcReady = computed(() =>
       calc.uah > 0 && calc.buyRate > 0 && calc.sellRate > 0
     );
-    const calcUsdt = computed(() =>
-      calcReady.value ? calc.uah / calc.buyRate : null
-    );
-    const calcThb = computed(() =>
-      calcReady.value ? calcUsdt.value * calc.sellRate : null
-    );
+    const calcUsdt = computed(() => calcReady.value ? calc.uah / calc.buyRate : null);
+    const calcThb = computed(() => calcReady.value ? calcUsdt.value * calc.sellRate : null);
     const calcEffectiveUahPerThb = computed(() =>
       calcReady.value && calcThb.value > 0 ? calc.uah / calcThb.value : null
     );
@@ -163,15 +201,9 @@ createApp({
     );
 
     // --- helpers ---
-    function fromCurrency(dir) {
-      return dir === 'UAH_USDT' ? 'UAH' : dir === 'USDT_THB' ? 'USDT' : '';
-    }
-    function toCurrency(dir) {
-      return dir === 'UAH_USDT' ? 'USDT' : dir === 'USDT_THB' ? 'THB' : '';
-    }
-    function directionLabel(dir) {
-      return dir === 'UAH_USDT' ? 'UAH → USDT' : 'USDT → THB';
-    }
+    function fromCurrency(dir) { return dir === 'UAH_USDT' ? 'UAH' : dir === 'USDT_THB' ? 'USDT' : ''; }
+    function toCurrency(dir) { return dir === 'UAH_USDT' ? 'USDT' : dir === 'USDT_THB' ? 'THB' : ''; }
+    function directionLabel(dir) { return dir === 'UAH_USDT' ? 'UAH → USDT' : 'USDT → THB'; }
     function formatDate(iso) {
       const [y, m, d] = iso.split('-');
       return `${d}.${m}.${y.slice(2)}`;
@@ -180,10 +212,7 @@ createApp({
       if (n === null || n === undefined || n === '') return '—';
       const num = Number(n);
       if (!isFinite(num)) return '—';
-      return num.toLocaleString('uk-UA', {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 2,
-      });
+      return num.toLocaleString('uk-UA', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
     }
     function formatRate(n) {
       if (n === null || n === undefined || n === '') return '';
@@ -194,22 +223,12 @@ createApp({
         maximumFractionDigits: num < 1 ? 6 : 4,
       });
     }
-    function formatSignedRate(n) {
-      if (n === null || n === undefined) return '—';
-      const f = formatRate(Math.abs(n));
-      return (n >= 0 ? '+' : '−') + f + ' UAH';
-    }
-    function formatSignedAmount(n) {
-      if (n === null || n === undefined) return '—';
-      return (n >= 0 ? '+' : '−') + formatAmount(Math.abs(n));
-    }
 
     function nbuForDeal(d) {
       if (d.direction === 'UAH_USDT') {
         const r = nbuRates[`${d.deal_date}|USD`];
         return r === undefined ? '…' : (r === null ? '—' : formatRate(r));
       }
-      // USDT_THB — derive USD/THB from UAH anchors
       const usd = nbuRates[`${d.deal_date}|USD`];
       const thb = nbuRates[`${d.deal_date}|THB`];
       if (usd === undefined || thb === undefined) return '…';
@@ -309,9 +328,7 @@ createApp({
       formError.value = '';
       modalOpen.value = true;
     }
-    function closeModal() {
-      modalOpen.value = false;
-    }
+    function closeModal() { modalOpen.value = false; }
 
     async function submitForm() {
       formError.value = '';
@@ -331,8 +348,7 @@ createApp({
         const url = form.id ? `${API}/deals.php?id=${form.id}` : `${API}/deals.php`;
         const method = form.id ? 'PUT' : 'POST';
         const resp = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
+          method, headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
         const json = await resp.json();
@@ -341,7 +357,8 @@ createApp({
           return;
         }
         closeModal();
-        await Promise.all([loadDeals(), activeTab.value === 'analytics' ? loadAnalytics() : null]);
+        await loadDeals();
+        if (route.name === 'analytics') await loadAnalytics();
       } catch (e) {
         formError.value = e.message || 'Сеть недоступна';
       } finally {
@@ -353,7 +370,13 @@ createApp({
       if (!confirm(`Удалить сделку от ${formatDate(d.deal_date)}?`)) return;
       await fetch(`${API}/deals.php?id=${d.id}`, { method: 'DELETE' });
       await loadDeals();
-      if (activeTab.value === 'analytics') await loadAnalytics();
+      if (route.name === 'analytics') await loadAnalytics();
+    }
+
+    function shiftMonth(delta) {
+      const [y, m] = selectedMonth.value.split('-').map(Number);
+      const dt = new Date(y, m - 1 + delta, 1);
+      selectedMonth.value = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
     }
 
     async function refreshCalcDefaults() {
@@ -378,49 +401,74 @@ createApp({
       }
     }
 
-    function shiftMonth(delta) {
-      const [y, m] = selectedMonth.value.split('-').map(Number);
-      const dt = new Date(y, m - 1 + delta, 1);
-      const ny = dt.getFullYear();
-      const nm = String(dt.getMonth() + 1).padStart(2, '0');
-      selectedMonth.value = `${ny}-${nm}`;
+    // --- login ---
+    async function submitLogin() {
+      loginError.value = '';
+      loginSubmitting.value = true;
+      try {
+        const r = await originalFetch(`${API}/login.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: loginPassword.value }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Ошибка входа');
+        authState.authed = true;
+        loginPassword.value = '';
+        router.push('/deals');
+      } catch (e) {
+        loginError.value = e.message || 'Сеть недоступна';
+      } finally {
+        loginSubmitting.value = false;
+      }
+    }
+
+    async function logout() {
+      await originalFetch(`${API}/logout.php`, { method: 'POST' });
+      authState.authed = false;
+      router.push('/login');
     }
 
     // --- watchers ---
     watch(selectedMonth, async () => {
+      if (isLoginRoute.value) return;
       await loadDeals();
-      if (activeTab.value === 'analytics') await loadAnalytics();
+      if (route.name === 'analytics') await loadAnalytics();
     });
 
-    watch(activeTab, async (tab) => {
-      if (tab === 'analytics') await loadAnalytics();
-      if (tab === 'calculator' && calc.nbuUsdUah === null) await refreshCalcDefaults();
+    watch(() => route.name, async (name) => {
+      if (name === 'login') return;
+      if (name === 'deals' && deals.value.length === 0) await loadDeals();
+      if (name === 'analytics') await loadAnalytics();
+      if (name === 'calculator' && calc.nbuUsdUah === null) await refreshCalcDefaults();
     });
 
     onMounted(async () => {
-      try {
-        const me = await (await fetch(`${API}/me.php`)).json();
-        authRequired.value = !!me.auth_required;
-      } catch {}
-      loadDeals();
+      if (!isLoginRoute.value && authState.authed) {
+        await loadDeals();
+      }
     });
 
     return {
-      activeTab, selectedMonth, monthLabel,
+      selectedMonth, monthLabel,
       exchanges,
       deals, monthDeals, loadingDeals,
-      analytics, loadingAnalytics, buyCount, sellCount, savingsClass,
+      analytics, loadingAnalytics, buyCount, sellCount,
       buyRateDiffPct, sellRateDiffPct,
       modalOpen, form, formError, saving, computedRate, rateUnit, rateDiffPct, rateDiffAbs,
       openCreateModal, openEditModal, closeModal, submitForm, deleteDeal,
       shiftMonth,
+      fromCurrency, toCurrency, directionLabel,
+      formatDate, formatAmount, formatRate,
+      nbuForDeal, nbuTooltip, rateTooltip,
       calc, calcReady, calcUsdt, calcThb, calcEffectiveUahPerThb, calcNbuCross,
       calcAlternativeUah, calcSavings, calcSavingsPct, calcBreakEvenSellRate,
       refreshCalcDefaults,
       authRequired, logout,
-      fromCurrency, toCurrency, directionLabel,
-      formatDate, formatAmount, formatRate, formatSignedRate, formatSignedAmount,
-      nbuForDeal, nbuTooltip, rateTooltip,
+      isLoginRoute, loginPassword, loginPasswordVisible, loginError, loginSubmitting, submitLogin,
     };
   }
-}).mount('#app');
+});
+
+app.use(router);
+app.mount('#app');

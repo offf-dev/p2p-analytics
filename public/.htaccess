@@ -1,0 +1,18 @@
+RewriteEngine On
+
+# /api/* — отдаём как есть, не трогаем
+RewriteRule ^api/ - [L]
+
+# Старые ссылки на .html → 301 на SPA-роуты
+RewriteCond %{THE_REQUEST} \s/+index\.html[\s?] [NC]
+RewriteRule ^ / [R=301,L]
+RewriteCond %{THE_REQUEST} \s/+login\.html[\s?] [NC]
+RewriteRule ^ /login [R=301,L]
+
+# Существующие файлы и папки — отдаём как есть
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# SPA fallback: всё остальное — в index.html, роутер разберётся
+RewriteRule ^ /index.html [L]
