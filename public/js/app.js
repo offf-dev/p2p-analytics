@@ -72,7 +72,6 @@ function emptyForm() {
   return {
     id: null,
     deal_date: todayISO(),
-    deal_time: new Date().toTimeString().slice(0, 5),
     direction: 'UAH_USDT',
     exchange: 'Binance',
     amount_from: null,
@@ -362,7 +361,6 @@ const app = createApp({
       Object.assign(form, {
         id: d.id,
         deal_date: d.deal_date,
-        deal_time: d.deal_time ? d.deal_time.slice(0, 5) : '',
         direction: d.direction,
         exchange: d.exchange,
         amount_from: Number(d.amount_from),
@@ -382,7 +380,6 @@ const app = createApp({
       try {
         const body = {
           deal_date: form.deal_date,
-          deal_time: form.deal_time || null,
           direction: form.direction,
           exchange: form.exchange,
           amount_from: form.amount_from,

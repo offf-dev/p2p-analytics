@@ -37,7 +37,7 @@ function handle_list(): void
     if ($exchange && in_array($exchange, ALLOWED_EXCHANGES, true)) {
         $sql .= ' AND exchange = ?'; $params[] = $exchange;
     }
-    $sql .= ' ORDER BY deal_date DESC, deal_time DESC, id DESC';
+    $sql .= ' ORDER BY deal_date DESC, id DESC';
 
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
@@ -48,7 +48,6 @@ function validate_payload(array $data): array
 {
     $errors = [];
     $deal_date = trim((string)($data['deal_date'] ?? ''));
-    $deal_time = trim((string)($data['deal_time'] ?? ''));
     $direction = $data['direction'] ?? '';
     $exchange = $data['exchange'] ?? '';
     $amount_from = (float)($data['amount_from'] ?? 0);
@@ -60,9 +59,6 @@ function validate_payload(array $data): array
 
     if (!$deal_date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $deal_date)) {
         $errors[] = 'deal_date is required (YYYY-MM-DD)';
-    }
-    if ($deal_time && !preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $deal_time)) {
-        $errors[] = 'deal_time must be HH:MM or HH:MM:SS';
     }
     if (!in_array($direction, ALLOWED_DIRECTIONS, true)) {
         $errors[] = 'direction must be one of: ' . implode(', ', ALLOWED_DIRECTIONS);
@@ -84,7 +80,6 @@ function validate_payload(array $data): array
 
     return [
         'deal_date' => $deal_date,
-        'deal_time' => $deal_time ?: null,
         'direction' => $direction,
         'exchange' => $exchange,
         'amount_from' => $amount_from,
@@ -100,8 +95,8 @@ function handle_create(): void
 {
     $p = validate_payload(read_json());
     $stmt = db()->prepare(
-        'INSERT INTO deals (deal_date, deal_time, direction, exchange, amount_from, amount_to, rate, declared_rate, counterparty, note)
-         VALUES (:deal_date, :deal_time, :direction, :exchange, :amount_from, :amount_to, :rate, :declared_rate, :counterparty, :note)'
+        'INSERT INTO deals (deal_date, direction, exchange, amount_from, amount_to, rate, declared_rate, counterparty, note)
+         VALUES (:deal_date, :direction, :exchange, :amount_from, :amount_to, :rate, :declared_rate, :counterparty, :note)'
     );
     $stmt->execute($p);
     $id = (int)db()->lastInsertId();
@@ -118,7 +113,7 @@ function handle_update(): void
     $p['id'] = $id;
     $stmt = db()->prepare(
         'UPDATE deals SET
-            deal_date = :deal_date, deal_time = :deal_time,
+            deal_date = :deal_date,
             direction = :direction, exchange = :exchange,
             amount_from = :amount_from, amount_to = :amount_to, rate = :rate,
             declared_rate = :declared_rate,

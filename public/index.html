@@ -130,10 +130,7 @@
               <div></div>
             </div>
             <div v-for="d in monthDeals" :key="d.id" class="deals-row">
-              <div class="cell-date">
-                <div>{{ formatDate(d.deal_date) }}</div>
-                <div class="muted" v-if="d.deal_time">{{ d.deal_time.slice(0,5) }}</div>
-              </div>
+              <div class="cell-date">{{ formatDate(d.deal_date) }}</div>
               <div>
                 <span :class="['chip', 'chip--' + d.direction.toLowerCase()]">
                   {{ directionLabel(d.direction) }}
@@ -429,14 +426,10 @@
             <button class="icon-btn" @click="closeModal">×</button>
           </div>
           <form @submit.prevent="submitForm" class="form">
-            <div class="form__row">
+            <div class="form__field">
               <label>
                 <span class="label">Дата</span>
                 <input type="date" v-model="form.deal_date" required>
-              </label>
-              <label>
-                <span class="label">Время <span class="muted">(опц.)</span></span>
-                <input type="time" v-model="form.deal_time">
               </label>
             </div>
 
