@@ -108,6 +108,13 @@ const app = createApp({
     const loginError = ref('');
     const loginSubmitting = ref(false);
 
+    const analyticsPeriod = reactive({
+      mode: 'month',       // 'month' | 'salary' | 'range'
+      anchorMonth: currentMonth(),  // якорь для month и salary режимов
+      from: '',
+      to: '',
+    });
+
     const calc = reactive({
       uah: null,
       buyRate: null,
@@ -128,6 +135,16 @@ const app = createApp({
       const [y, m] = selectedMonth.value.split('-');
       const dt = new Date(+y, +m - 1, 1);
       return dt.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+    });
+
+    const analyticsPeriodLabel = computed(() => {
+      if (!analyticsPeriod.from || !analyticsPeriod.to) return '';
+      if (analyticsPeriod.mode === 'month') {
+        const [y, m] = analyticsPeriod.anchorMonth.split('-');
+        const dt = new Date(+y, +m - 1, 1);
+        return dt.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+      }
+      return `${formatDate(analyticsPeriod.from)} — ${formatDate(analyticsPeriod.to)}`;
     });
 
     const monthDeals = computed(() => deals.value);
@@ -273,13 +290,42 @@ const app = createApp({
     }
 
     async function loadAnalytics() {
+      if (!analyticsPeriod.from || !analyticsPeriod.to) return;
       loadingAnalytics.value = true;
       try {
-        const resp = await fetch(`${API}/analytics.php?month=${selectedMonth.value}`);
+        const resp = await fetch(`${API}/analytics.php?from=${analyticsPeriod.from}&to=${analyticsPeriod.to}`);
         analytics.value = await resp.json();
       } finally {
         loadingAnalytics.value = false;
       }
+    }
+
+    function recomputeAnalyticsPeriod() {
+      if (analyticsPeriod.mode === 'month') {
+        const [y, m] = analyticsPeriod.anchorMonth.split('-').map(Number);
+        analyticsPeriod.from = `${y}-${String(m).padStart(2, '0')}-01`;
+        const lastDay = new Date(y, m, 0).getDate();
+        analyticsPeriod.to = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      } else if (analyticsPeriod.mode === 'salary') {
+        const [y, m] = analyticsPeriod.anchorMonth.split('-').map(Number);
+        analyticsPeriod.from = `${y}-${String(m).padStart(2, '0')}-15`;
+        const next = new Date(y, m, 14);  // (m) → следующий месяц (0-indexed), 14 число
+        analyticsPeriod.to = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+      }
+      // mode==='range' — даты вводятся пользователем вручную
+    }
+
+    function setAnalyticsPeriodMode(mode) {
+      analyticsPeriod.mode = mode;
+      if (mode !== 'range') recomputeAnalyticsPeriod();
+    }
+
+    function shiftAnalyticsPeriod(delta) {
+      if (analyticsPeriod.mode === 'range') return;
+      const [y, m] = analyticsPeriod.anchorMonth.split('-').map(Number);
+      const dt = new Date(y, m - 1 + delta, 1);
+      analyticsPeriod.anchorMonth = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+      recomputeAnalyticsPeriod();
     }
 
     async function prefetchNbuRates() {
@@ -439,8 +485,19 @@ const app = createApp({
     watch(() => route.name, async (name) => {
       if (name === 'login') return;
       if (name === 'deals' && deals.value.length === 0) await loadDeals();
-      if (name === 'analytics') await loadAnalytics();
+      if (name === 'analytics') {
+        if (!analyticsPeriod.from) recomputeAnalyticsPeriod();
+        await loadAnalytics();
+      }
       if (name === 'calculator' && calc.nbuUsdUah === null) await refreshCalcDefaults();
+    });
+
+    watch(() => [analyticsPeriod.from, analyticsPeriod.to, analyticsPeriod.mode], () => {
+      if (route.name === 'analytics') loadAnalytics();
+    });
+
+    watch(() => analyticsPeriod.anchorMonth, () => {
+      if (analyticsPeriod.mode !== 'range') recomputeAnalyticsPeriod();
     });
 
     onMounted(async () => {
@@ -466,6 +523,7 @@ const app = createApp({
       refreshCalcDefaults,
       authRequired, logout,
       isLoginRoute, loginPassword, loginPasswordVisible, loginError, loginSubmitting, submitLogin,
+      analyticsPeriod, analyticsPeriodLabel, setAnalyticsPeriodMode, shiftAnalyticsPeriod,
     };
   }
 });

@@ -141,7 +141,32 @@
 
         <section v-if="$route.name === 'analytics'" class="panel">
           <div class="panel__head">
-            <h2 class="panel__title">Аналитика за {{ monthLabel }}</h2>
+            <h2 class="panel__title">Аналитика за {{ analyticsPeriodLabel }}</h2>
+          </div>
+
+          <div class="period-picker">
+            <div class="period-picker__modes">
+              <button :class="['period-mode', { active: analyticsPeriod.mode === 'month' }]" @click="setAnalyticsPeriodMode('month')">Месяц</button>
+              <button :class="['period-mode', { active: analyticsPeriod.mode === 'salary' }]" @click="setAnalyticsPeriodMode('salary')">ЗП-период (15→14)</button>
+              <button :class="['period-mode', { active: analyticsPeriod.mode === 'range' }]" @click="setAnalyticsPeriodMode('range')">Диапазон</button>
+            </div>
+            <div class="period-picker__controls">
+              <template v-if="analyticsPeriod.mode === 'month'">
+                <button class="month-nav" @click="shiftAnalyticsPeriod(-1)" title="Предыдущий месяц">‹</button>
+                <input type="month" v-model="analyticsPeriod.anchorMonth" class="month-input">
+                <button class="month-nav" @click="shiftAnalyticsPeriod(1)" title="Следующий месяц">›</button>
+              </template>
+              <template v-else-if="analyticsPeriod.mode === 'salary'">
+                <button class="month-nav" @click="shiftAnalyticsPeriod(-1)" title="Предыдущий период">‹</button>
+                <div class="period-range mono">{{ formatDate(analyticsPeriod.from) }} — {{ formatDate(analyticsPeriod.to) }}</div>
+                <button class="month-nav" @click="shiftAnalyticsPeriod(1)" title="Следующий период">›</button>
+              </template>
+              <template v-else>
+                <input type="date" v-model="analyticsPeriod.from" class="month-input">
+                <span class="muted">—</span>
+                <input type="date" v-model="analyticsPeriod.to" class="month-input">
+              </template>
+            </div>
           </div>
 
           <div v-if="loadingAnalytics" class="empty">Считаю…</div>

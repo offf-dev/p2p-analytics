@@ -5,13 +5,24 @@ declare(strict_types=1);
 require __DIR__ . '/_bootstrap.php';
 require_auth();
 
-$month = $_GET['month'] ?? date('Y-m');
-if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
-    json_err('month required (YYYY-MM)', 422);
+$from = $_GET['from'] ?? null;
+$to = $_GET['to'] ?? null;
+
+if (!$from || !$to) {
+    $month = $_GET['month'] ?? date('Y-m');
+    if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+        json_err('month required (YYYY-MM) or from/to pair (YYYY-MM-DD)', 422);
+    }
+    $from = $month . '-01';
+    $to = date('Y-m-t', strtotime($from));
 }
 
-$from = $month . '-01';
-$to = date('Y-m-t', strtotime($from));
+if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+    json_err('from/to must be YYYY-MM-DD', 422);
+}
+if ($from > $to) {
+    json_err('from must be <= to', 422);
+}
 
 $stmt = db()->prepare('SELECT * FROM deals WHERE deal_date BETWEEN ? AND ? ORDER BY deal_date, deal_time, id');
 $stmt->execute([$from, $to]);
@@ -101,7 +112,6 @@ if ($effectiveUahPerThb !== null && $nbuAvgUahPerThb !== null && $thbUtilized > 
 }
 
 json_out([
-    'month' => $month,
     'from' => $from,
     'to' => $to,
     'deals_count' => count($deals),
