@@ -27,17 +27,25 @@ function handle_list(): void
     $direction = $_GET['direction'] ?? null;
     $exchange = $_GET['exchange'] ?? null;
 
-    $sql = 'SELECT * FROM deals WHERE 1=1';
+    $sql = '
+        SELECT
+            d.*,
+            u.rate_uah AS nbu_usd_uah,
+            t.rate_uah AS nbu_thb_uah
+        FROM deals d
+        LEFT JOIN nbu_rates u ON u.rate_date = d.deal_date AND u.currency = \'USD\'
+        LEFT JOIN nbu_rates t ON t.rate_date = d.deal_date AND t.currency = \'THB\'
+        WHERE 1=1';
     $params = [];
-    if ($from) { $sql .= ' AND deal_date >= ?'; $params[] = $from; }
-    if ($to) { $sql .= ' AND deal_date <= ?'; $params[] = $to; }
+    if ($from) { $sql .= ' AND d.deal_date >= ?'; $params[] = $from; }
+    if ($to) { $sql .= ' AND d.deal_date <= ?'; $params[] = $to; }
     if ($direction && in_array($direction, ALLOWED_DIRECTIONS, true)) {
-        $sql .= ' AND direction = ?'; $params[] = $direction;
+        $sql .= ' AND d.direction = ?'; $params[] = $direction;
     }
     if ($exchange && in_array($exchange, ALLOWED_EXCHANGES, true)) {
-        $sql .= ' AND exchange = ?'; $params[] = $exchange;
+        $sql .= ' AND d.exchange = ?'; $params[] = $exchange;
     }
-    $sql .= ' ORDER BY deal_date DESC, id DESC';
+    $sql .= ' ORDER BY d.deal_date DESC, d.id DESC';
 
     $stmt = db()->prepare($sql);
     $stmt->execute($params);
@@ -101,8 +109,26 @@ function handle_create(): void
     $stmt->execute($p);
     $id = (int)db()->lastInsertId();
 
-    $row = db()->query("SELECT * FROM deals WHERE id = {$id}")->fetch();
+    // Автоматически кешируем курсы НБУ на дату сделки (без ошибки если сеть/НБУ недоступны)
+    ensure_nbu_rate($p['deal_date'], 'USD');
+    ensure_nbu_rate($p['deal_date'], 'THB');
+
+    $row = deal_with_nbu($id);
     json_out(['deal' => $row], 201);
+}
+
+function deal_with_nbu(int $id): ?array
+{
+    $stmt = db()->prepare('
+        SELECT d.*,
+               u.rate_uah AS nbu_usd_uah,
+               t.rate_uah AS nbu_thb_uah
+        FROM deals d
+        LEFT JOIN nbu_rates u ON u.rate_date = d.deal_date AND u.currency = \'USD\'
+        LEFT JOIN nbu_rates t ON t.rate_date = d.deal_date AND t.currency = \'THB\'
+        WHERE d.id = ?');
+    $stmt->execute([$id]);
+    return $stmt->fetch() ?: null;
 }
 
 function handle_update(): void
@@ -121,7 +147,11 @@ function handle_update(): void
          WHERE id = :id'
     );
     $stmt->execute($p);
-    $row = db()->query("SELECT * FROM deals WHERE id = {$id}")->fetch();
+
+    ensure_nbu_rate($p['deal_date'], 'USD');
+    ensure_nbu_rate($p['deal_date'], 'THB');
+
+    $row = deal_with_nbu($id);
     if (!$row) { json_err('Deal not found', 404); }
     json_out(['deal' => $row]);
 }

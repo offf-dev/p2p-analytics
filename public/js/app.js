@@ -94,8 +94,6 @@ const app = createApp({
     const analytics = ref(null);
     const loadingAnalytics = ref(false);
 
-    const nbuRates = reactive({});
-
     const modalOpen = ref(false);
     const form = reactive(emptyForm());
     const formError = ref('');
@@ -241,20 +239,18 @@ const app = createApp({
     }
 
     function nbuForDeal(d) {
+      const usd = d.nbu_usd_uah ? Number(d.nbu_usd_uah) : null;
+      const thb = d.nbu_thb_uah ? Number(d.nbu_thb_uah) : null;
       if (d.direction === 'UAH_USDT') {
-        const r = nbuRates[`${d.deal_date}|USD`];
-        return r === undefined ? '…' : (r === null ? '—' : formatRate(r));
+        return usd ? formatRate(usd) : '—';
       }
-      const usd = nbuRates[`${d.deal_date}|USD`];
-      const thb = nbuRates[`${d.deal_date}|THB`];
-      if (usd === undefined || thb === undefined) return '…';
       if (!usd || !thb) return '—';
       return formatRate(usd / thb);
     }
     function nbuTooltip(d) {
+      const usd = d.nbu_usd_uah ? Number(d.nbu_usd_uah) : null;
+      const thb = d.nbu_thb_uah ? Number(d.nbu_thb_uah) : null;
       if (d.direction === 'UAH_USDT') return `НБУ USD/UAH на ${d.deal_date}`;
-      const usd = nbuRates[`${d.deal_date}|USD`];
-      const thb = nbuRates[`${d.deal_date}|THB`];
       const parts = [`НБУ USD/THB (кросс через UAH) на ${d.deal_date}`];
       if (usd) parts.push(`USD/UAH: ${formatRate(usd)}`);
       if (thb) parts.push(`THB/UAH: ${formatRate(thb)}`);
@@ -282,7 +278,6 @@ const app = createApp({
         const resp = await fetch(`${API}/deals.php?from=${from}&to=${to}`);
         const json = await resp.json();
         deals.value = json.deals || [];
-        prefetchNbuRates();
       } finally {
         loadingDeals.value = false;
       }
@@ -327,33 +322,6 @@ const app = createApp({
       recomputeAnalyticsPeriod();
     }
 
-    async function prefetchNbuRates() {
-      // Собираем уникальные даты сделок текущего месяца
-      const dates = new Set();
-      for (const d of deals.value) {
-        if (d.direction === 'UAH_USDT' || d.direction === 'USDT_THB') {
-          dates.add(d.deal_date);
-        }
-      }
-
-      // Берём только те, где хотя бы один из курсов ещё не загружен
-      const needed = [...dates].filter(date =>
-        nbuRates[`${date}|USD`] === undefined || nbuRates[`${date}|THB`] === undefined
-      );
-
-      // Параллельно по одному запросу на дату — endpoint сам отдаёт USD+THB
-      await Promise.all(needed.map(async (date) => {
-        try {
-          const resp = await fetch(`${API}/nbu.php?date=${date}`);
-          const json = await resp.json();
-          nbuRates[`${date}|USD`] = json.rates?.USD?.rate_uah ?? null;
-          nbuRates[`${date}|THB`] = json.rates?.THB?.rate_uah ?? null;
-        } catch {
-          nbuRates[`${date}|USD`] = null;
-          nbuRates[`${date}|THB`] = null;
-        }
-      }));
-    }
 
     // --- modal / form ---
     function openCreateModal() {

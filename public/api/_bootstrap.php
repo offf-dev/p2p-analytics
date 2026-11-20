@@ -51,6 +51,38 @@ function db(): PDO
 const ALLOWED_DIRECTIONS = ['UAH_USDT', 'USDT_THB'];
 const ALLOWED_EXCHANGES = ['Binance', 'Bybit', 'BingX'];
 
+function fetch_nbu_from_source(string $date, string $currency): ?array
+{
+    $yyyymmdd = str_replace('-', '', $date);
+    $url = "https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?valcode={$currency}&date={$yyyymmdd}&json";
+    $ctx = stream_context_create(['http' => ['timeout' => 7, 'ignore_errors' => true]]);
+    $raw = @file_get_contents($url, false, $ctx);
+    if ($raw === false) return null;
+    $data = json_decode($raw, true);
+    if (!is_array($data) || !isset($data[0]['rate'])) return null;
+    $row = $data[0];
+    $rateDate = $date;
+    if (!empty($row['exchangedate']) && preg_match('/^(\d{2})\.(\d{2})\.(\d{4})$/', $row['exchangedate'], $m)) {
+        $rateDate = "{$m[3]}-{$m[2]}-{$m[1]}";
+    }
+    return ['rate_uah' => (float)$row['rate'], 'rate_date' => $rateDate];
+}
+
+function ensure_nbu_rate(string $date, string $currency): ?float
+{
+    $stmt = db()->prepare('SELECT rate_uah FROM nbu_rates WHERE rate_date = ? AND currency = ?');
+    $stmt->execute([$date, $currency]);
+    $row = $stmt->fetch();
+    if ($row) return (float)$row['rate_uah'];
+
+    $fetched = fetch_nbu_from_source($date, $currency);
+    if (!$fetched) return null;
+
+    $ins = db()->prepare('INSERT IGNORE INTO nbu_rates (rate_date, currency, rate_uah) VALUES (?, ?, ?)');
+    $ins->execute([$fetched['rate_date'], $currency, $fetched['rate_uah']]);
+    return (float)$fetched['rate_uah'];
+}
+
 function require_auth(): void
 {
     // Auth is optional: when APP_PASSWORD_HASH isn't set (dev/local), skip the check.
