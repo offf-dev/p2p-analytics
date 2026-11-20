@@ -354,6 +354,10 @@ const app = createApp({
     // --- modal / form ---
     function openCreateModal() {
       Object.assign(form, emptyForm());
+      const today = todayISO();
+      form.deal_date = today.startsWith(selectedMonth.value)
+        ? today
+        : `${selectedMonth.value}-01`;
       formError.value = '';
       modalOpen.value = true;
     }
