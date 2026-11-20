@@ -328,27 +328,31 @@ const app = createApp({
     }
 
     async function prefetchNbuRates() {
-      const pairs = new Set();
+      // Собираем уникальные даты сделок текущего месяца
+      const dates = new Set();
       for (const d of deals.value) {
-        if (d.direction === 'UAH_USDT') {
-          pairs.add(`${d.deal_date}|USD`);
-        } else if (d.direction === 'USDT_THB') {
-          pairs.add(`${d.deal_date}|USD`);
-          pairs.add(`${d.deal_date}|THB`);
+        if (d.direction === 'UAH_USDT' || d.direction === 'USDT_THB') {
+          dates.add(d.deal_date);
         }
       }
-      for (const key of pairs) {
-        if (nbuRates[key] !== undefined) continue;
-        nbuRates[key] = undefined;
-        const [date, cur] = key.split('|');
+
+      // Берём только те, где хотя бы один из курсов ещё не загружен
+      const needed = [...dates].filter(date =>
+        nbuRates[`${date}|USD`] === undefined || nbuRates[`${date}|THB`] === undefined
+      );
+
+      // Параллельно по одному запросу на дату — endpoint сам отдаёт USD+THB
+      await Promise.all(needed.map(async (date) => {
         try {
-          const resp = await fetch(`${API}/nbu.php?date=${date}&currency=${cur}`);
+          const resp = await fetch(`${API}/nbu.php?date=${date}`);
           const json = await resp.json();
-          nbuRates[key] = json.rates?.[cur]?.rate_uah ?? null;
+          nbuRates[`${date}|USD`] = json.rates?.USD?.rate_uah ?? null;
+          nbuRates[`${date}|THB`] = json.rates?.THB?.rate_uah ?? null;
         } catch {
-          nbuRates[key] = null;
+          nbuRates[`${date}|USD`] = null;
+          nbuRates[`${date}|THB`] = null;
         }
-      }
+      }));
     }
 
     // --- modal / form ---
