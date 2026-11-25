@@ -4,17 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>P2P Analytics</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
-  <link rel="stylesheet" href="/css/styles.css?v=2">
+  <link rel="stylesheet" href="/css/styles.css?v=3">
 </head>
 <body>
   <div id="app" v-cloak>
 
     <div v-if="isLoginRoute" class="login-page">
       <div class="login-card">
-        <div class="login-card__logo">P2P</div>
+        <img class="login-card__logo" src="/logo.png" alt="P2P">
         <div class="login-card__title">P2P Analytics</div>
         <div class="login-card__sub">Введите пароль, чтобы продолжить</div>
         <form @submit.prevent="submitLogin" class="login-form" autocomplete="off">
@@ -42,7 +44,7 @@
     <template v-else>
       <header class="topbar">
         <div class="brand">
-          <div class="brand__logo">P2P</div>
+          <img class="brand__logo" src="/logo.png" alt="P2P">
           <div class="brand__title">
             <div class="brand__name">P2P Analytics</div>
             <div class="brand__sub">UAH → USDT → THB</div>
@@ -522,6 +524,6 @@
 
   <script src="https://unpkg.com/vue@3.4.38/dist/vue.global.prod.js"></script>
   <script src="https://unpkg.com/vue-router@4.4.5/dist/vue-router.global.prod.js"></script>
-  <script src="/js/app.js?v=2"></script>
+  <script src="/js/app.js?v=3"></script>
 </body>
 </html>

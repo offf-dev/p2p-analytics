@@ -60,11 +60,8 @@ body {
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand__logo {
   width: 40px; height: 40px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 14px; color: #0a1510;
-  letter-spacing: 0.5px;
+  display: block;
+  object-fit: contain;
 }
 .brand__name { font-weight: 600; font-size: 16px; }
 .brand__sub { font-size: 12px; color: var(--text-muted); }
@@ -618,11 +615,9 @@ body {
   box-shadow: var(--shadow-lg);
 }
 .login-card__logo {
-  width: 48px; height: 48px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
-  border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; color: #0a1510;
+  width: 56px; height: 56px;
+  display: block;
+  object-fit: contain;
   margin-bottom: 20px;
 }
 .login-card__title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
